@@ -1,0 +1,12 @@
+{
+  "id": "com.stremio.torrentio.addon",
+  "version": "0.0.14",
+  "name": "Torrentio",
+  "description": "Provides torrent streams",
+  "catalogs": [],
+  "resources": [
+    { "name": "stream", "types": ["movie", "series", "anime"], "idPrefixes": ["tt", "kitsu"] }
+  ],
+  "types": ["movie", "series", "anime", "other"],
+  "behaviorHints": { "configurable": true }
+}

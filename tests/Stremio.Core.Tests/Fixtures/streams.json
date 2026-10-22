@@ -1,0 +1,24 @@
+{
+  "streams": [
+    {
+      "name": "Torrentio\n4k",
+      "title": "Movie.2160p.HDR.mkv\n👤 120 💾 20 GB",
+      "infoHash": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+      "fileIdx": 2,
+      "behaviorHints": { "bingeGroup": "torrentio|4k" }
+    },
+    {
+      "name": "[RD+] Torrentio\n1080p",
+      "title": "Movie.1080p.mkv",
+      "url": "https://example.com/resolve/movie.mkv",
+      "behaviorHints": {
+        "notWebReady": true,
+        "proxyHeaders": { "request": { "User-Agent": "Stremio" } }
+      }
+    },
+    {
+      "name": "Trailer",
+      "ytId": "dQw4w9WgXcQ"
+    }
+  ]
+}

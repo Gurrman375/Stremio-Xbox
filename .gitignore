@@ -1,0 +1,10 @@
+bin/
+obj/
+out/
+dist/
+AppPackages/
+BundleArtifacts/
+.vs/
+*.user
+*.pfx
+project.lock.json

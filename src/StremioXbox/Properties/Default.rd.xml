@@ -1,0 +1,12 @@
+<!--
+  .NET Native runtime directives. Stremio.Core models are deserialized by Newtonsoft.Json and
+  bound in XAML via {Binding}, both of which use reflection, so their metadata must be kept.
+-->
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Application>
+    <Assembly Name="*Application*" Dynamic="Required All" />
+    <Assembly Name="Stremio.Core" Dynamic="Required All" Serialize="Required All" />
+    <Assembly Name="Newtonsoft.Json" Dynamic="Required All" />
+    <Type Name="System.Collections.Generic.List{System.String}" Dynamic="Required All" />
+  </Application>
+</Directives>
