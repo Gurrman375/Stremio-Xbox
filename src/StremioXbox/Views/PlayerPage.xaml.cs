@@ -4,19 +4,25 @@ using System.Linq;
 using LibVLCSharp.Platforms.Windows;
 using LibVLCSharp.Shared;
 using StremioXbox.Services;
-using Windows.System;
 using Windows.System.Display;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
+using Windows.Gaming.Input;
+
 
 namespace StremioXbox.Views
 {
     public sealed partial class PlayerPage : Page
     {
+        private DispatcherTimer _gamepadTimer;
+        private GamepadButtons _previousButtons;
+        private double _previousLeftTrigger;
+        private double _previousRightTrigger;
         private static readonly TimeSpan OverlayTimeout = TimeSpan.FromSeconds(4);
+        private double _previousThumbstickX;
 
         private readonly DispatcherTimer _overlayTimer = new DispatcherTimer { Interval = OverlayTimeout };
         private readonly DisplayRequest _displayRequest = new DisplayRequest();
@@ -25,24 +31,44 @@ namespace StremioXbox.Views
         private MediaPlayer _player;
         private bool _displayMatched;
 
+        private readonly DispatcherTimer _clockTimer =
+        new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+
         public PlayerPage()
         {
             InitializeComponent();
             _overlayTimer.Tick += (s, e) => HideOverlay();
+            _gamepadTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(50)
+            };
+
+            _gamepadTimer.Tick += GamepadTimer_Tick;
+            _clockTimer.Tick += (s, e) => UpdateClocks();
         }
+
+        private static bool StickPressed(double current, double previous, double threshold = 0.5)
+        {
+            return Math.Abs(current) >= threshold &&
+                   Math.Abs(previous) < threshold;
+        }    
 
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
+            Window.Current.CoreWindow.PointerCursor = null;
             _args = (PlayerArgs)e.Parameter;
             TitleText.Text = _args.Title ?? "";
             _displayRequest.RequestActive();
-            Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
             ShowOverlay();
+            _gamepadTimer.Start();
+            _clockTimer.Start();
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
             _overlayTimer.Stop();
             try { _displayRequest.RequestRelease(); } catch (Exception) { }
 
@@ -57,7 +83,10 @@ namespace StremioXbox.Views
                 player.Dispose();
             }
             libVlc?.Dispose();
+            _gamepadTimer.Stop();
+            _clockTimer.Stop();
             DisplayModeService.RestoreDefault();
+            Window.Current.CoreWindow.PointerCursor = new CoreCursor(CoreCursorType.Arrow, 0);
         }
 
         // VideoView creates its swap chain first; LibVLC must be created with those options.
@@ -75,7 +104,6 @@ namespace StremioXbox.Views
             _libVlc = new LibVLC(false, options.ToArray());
             _player = new MediaPlayer(_libVlc) { EnableHardwareDecoding = true };
             _player.Playing += (s, a) => OnUi(OnPlaying);
-            _player.Paused += (s, a) => OnUi(() => { PlayPauseIcon.Symbol = Symbol.Play; ShowOverlay(); });
             _player.Buffering += (s, a) => OnUi(() => Buffering.IsActive = a.Cache < 100);
             _player.TimeChanged += (s, a) => OnUi(() => UpdatePosition(a.Time));
             _player.EncounteredError += (s, a) => OnUi(() => ShowError("Playback failed. The stream may be offline or unsupported."));
@@ -96,14 +124,24 @@ namespace StremioXbox.Views
             var selected = subtitles.FirstOrDefault(s => s.Lang == preferred);
             foreach (var sub in subtitles)
                 _player.AddSlave(MediaSlaveType.Subtitle, sub.Url, sub == selected);
+            _player.Paused += (s, a) => OnUi(() =>
+            {
+                PlayPauseIcon.Symbol = Symbol.Play;
+                Window.Current.CoreWindow.PointerCursor =
+                    new CoreCursor(CoreCursorType.Arrow, 0);
+                ShowOverlay();
+            });
         }
 
         private void OnPlaying()
         {
+            Window.Current.CoreWindow.PointerCursor = null;
+
             Buffering.IsActive = false;
             ErrorText.Visibility = Visibility.Collapsed;
             PlayPauseIcon.Symbol = Symbol.Pause;
             DurationText.Text = Format(_player?.Length ?? 0);
+
             ShowOverlay();
         }
 
@@ -137,12 +175,18 @@ namespace StremioXbox.Views
             ShowOverlay();
         }
 
-        private void ShowOverlay()
+        private void ShowOverlay(bool focusPlayPause = false)
         {
             var wasHidden = Overlay.Visibility != Visibility.Visible;
             Overlay.Visibility = Visibility.Visible;
-            if (wasHidden || FocusManager.GetFocusedElement() == null)
-                PlayPauseButton.Focus(FocusState.Programmatic);
+
+            if (focusPlayPause ||
+                wasHidden ||
+                FocusManager.GetFocusedElement() == null)
+            {
+                PlayPauseButton.Focus(FocusState.Keyboard);
+            }
+
             _overlayTimer.Stop();
             _overlayTimer.Start();
         }
@@ -154,45 +198,69 @@ namespace StremioXbox.Views
                 Overlay.Visibility = Visibility.Collapsed;
         }
 
-        private void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
+        private void GamepadTimer_Tick(object sender, object e)
         {
-            var hidden = Overlay.Visibility != Visibility.Visible;
-            switch (args.VirtualKey)
-            {
-                case VirtualKey.GamepadLeftShoulder:
-                    Seek(-10000);
-                    args.Handled = true;
-                    break;
-                case VirtualKey.GamepadRightShoulder:
-                    Seek(30000);
-                    args.Handled = true;
-                    break;
-                case VirtualKey.GamepadLeftTrigger:
-                    Seek(-300000);
-                    args.Handled = true;
-                    break;
-                case VirtualKey.GamepadRightTrigger:
-                    Seek(300000);
-                    args.Handled = true;
-                    break;
-                case VirtualKey.GamepadX:
+            if (Gamepad.Gamepads.Count == 0)
+                return;
+
+            var reading = Gamepad.Gamepads[0].GetCurrentReading();
+            var buttons = reading.Buttons;
+
+            // A = play/pause
+            if (Pressed(buttons, GamepadButtons.A))
+                if (Overlay.Visibility != Visibility.Visible) { 
                     TogglePause();
-                    args.Handled = true;
-                    break;
-                case VirtualKey.GamepadDPadLeft:
-                case VirtualKey.GamepadLeftThumbstickLeft:
-                    if (hidden) { Seek(-10000); args.Handled = true; }
-                    break;
-                case VirtualKey.GamepadDPadRight:
-                case VirtualKey.GamepadLeftThumbstickRight:
-                    if (hidden) { Seek(30000); args.Handled = true; }
-                    break;
-                case VirtualKey.GamepadA:
-                    // First press only reveals the controls.
-                    if (hidden) args.Handled = true;
-                    break;
+                }
+                
+
+            // Left stick or D-pad left/right = seek
+            if (Overlay.Visibility != Visibility.Visible)
+            {
+                if (Pressed(buttons, GamepadButtons.DPadLeft) ||
+                    (StickPressed(reading.LeftThumbstickX, _previousThumbstickX) &&
+                     reading.LeftThumbstickX < 0))
+                {
+                    Seek(-10000);
+                }
+
+                if (Pressed(buttons, GamepadButtons.DPadRight) ||
+                    (StickPressed(reading.LeftThumbstickX, _previousThumbstickX) &&
+                     reading.LeftThumbstickX > 0))
+                {
+                    Seek(30000);
+                }
             }
-            ShowOverlay();
+
+            // Bumpers = seek
+            if (Pressed(buttons, GamepadButtons.LeftShoulder))
+                Seek(-10000);
+
+            if (Pressed(buttons, GamepadButtons.RightShoulder))
+                Seek(30000);
+
+            // Triggers = large seek
+            if (reading.LeftTrigger > 0.5 &&
+                _previousLeftTrigger <= 0.5)
+            {
+                Seek(-300000);
+            }
+
+            if (reading.RightTrigger > 0.5 &&
+                _previousRightTrigger <= 0.5)
+            {
+                Seek(300000);
+            }
+
+            _previousButtons = buttons;
+            _previousLeftTrigger = reading.LeftTrigger;
+            _previousRightTrigger = reading.RightTrigger;
+            _previousThumbstickX = reading.LeftThumbstickX;
+        }
+
+        private bool Pressed(GamepadButtons current, GamepadButtons button)
+        {
+            return current.HasFlag(button) &&
+                   !_previousButtons.HasFlag(button);
         }
 
         private void Seek(long deltaMs)
@@ -218,16 +286,6 @@ namespace StremioXbox.Views
         private void Forward_Click(object sender, RoutedEventArgs e) { Seek(30000); }
         private void PlayPause_Click(object sender, RoutedEventArgs e) { TogglePause(); }
 
-        private void AudioMenu_Opening(object sender, object e)
-        {
-            FillTrackMenu(AudioMenu, _player?.AudioTrackDescription, _player?.AudioTrack ?? -1, id => _player?.SetAudioTrack(id));
-        }
-
-        private void SubtitleMenu_Opening(object sender, object e)
-        {
-            FillTrackMenu(SubtitleMenu, _player?.SpuDescription, _player?.Spu ?? -1, id => _player?.SetSpu(id));
-        }
-
         private static void FillTrackMenu(MenuFlyout menu, LibVLCSharp.Shared.Structures.TrackDescription[] tracks, int current, Action<int> select)
         {
             menu.Items.Clear();
@@ -239,10 +297,16 @@ namespace StremioXbox.Views
             foreach (var track in tracks)
             {
                 var id = track.Id;
-                var item = new ToggleMenuFlyoutItem { Text = track.Name ?? ("Track " + id), IsChecked = id == current };
+                var item = new ToggleMenuFlyoutItem
+                {
+                    Text = track.Name ?? ("Track " + id),
+                    IsChecked = id == current,
+                    Tag = id
+                };
                 item.Click += (s, a) => select(id);
                 menu.Items.Add(item);
             }
+
         }
 
         private void OnUi(Action action)
@@ -258,6 +322,40 @@ namespace StremioXbox.Views
         {
             var t = TimeSpan.FromMilliseconds(Math.Max(0, ms));
             return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+        }
+
+        private void AudioMenu_Opening(object sender, object e)
+        {
+            FillTrackMenu(
+                AudioMenu,
+                _player?.AudioTrackDescription,
+                _player?.AudioTrack ?? -1,
+                id => _player?.SetAudioTrack(id));
+        }
+
+        private void SubtitleMenu_Opening(object sender, object e)
+        {
+            FillTrackMenu(
+                SubtitleMenu,
+                _player?.SpuDescription,
+                _player?.Spu ?? -1,
+                id => _player?.SetSpu(id));
+        }
+
+        private void UpdateClocks()
+        {
+            CurrentClockText.Text =
+                DateTime.Now.ToString("h:mm tt");
+
+            var remaining = Math.Max(
+                0,
+                (_player?.Length ?? 0) -
+                (_player?.Time ?? 0));
+
+            var finishTime = DateTime.Now.AddMilliseconds(remaining);
+
+            RemainingClockText.Text =
+                "Ends: " + finishTime.ToString("h:mm tt");
         }
     }
 }
