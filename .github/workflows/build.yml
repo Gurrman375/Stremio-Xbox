@@ -1,0 +1,105 @@
+name: Build Stremio Xbox
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Debug
+          - Release
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      BUILD_CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Prepare signing certificate
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.PACKAGE_CERTIFICATE_BASE64 }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "StremioXbox.pfx"
+
+          [IO.File]::WriteAllBytes(
+              $pfxPath,
+              [Convert]::FromBase64String($env:CERTIFICATE_BASE64)
+          )
+
+          "PFX_PATH=$pfxPath" >> $env:GITHUB_ENV
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: |
+          msbuild StremioXbox.sln `
+            /t:Restore `
+            /p:Configuration=$env:BUILD_CONFIGURATION `
+            /p:Platform=x64
+
+      - name: Build and package app
+        shell: pwsh
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.PACKAGE_CERTIFICATE_PASSWORD }}
+        run: |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path artifacts\AppPackages
+
+          msbuild StremioXbox.sln `
+            /t:Rebuild `
+            /p:Configuration=$env:BUILD_CONFIGURATION `
+            /p:Platform=x64 `
+            /p:AppxPackageSigningEnabled=true `
+            /p:AppxBundle=Never `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxPackageDir="$env:GITHUB_WORKSPACE\artifacts\AppPackages\" `
+            /p:PackageCertificateKeyFile="$env:PFX_PATH" `
+            /p:PackageCertificatePassword="$env:CERTIFICATE_PASSWORD"
+
+      - name: Create public certificate file
+        shell: pwsh
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.PACKAGE_CERTIFICATE_PASSWORD }}
+        run: |
+          $securePassword = ConvertTo-SecureString `
+            $env:CERTIFICATE_PASSWORD `
+            -AsPlainText `
+            -Force
+
+          $certificate = Import-PfxCertificate `
+            -FilePath "$env:PFX_PATH" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -Password $securePassword
+
+          Export-Certificate `
+            -Cert $certificate[0] `
+            -FilePath "$env:GITHUB_WORKSPACE\artifacts\StremioXbox.cer"
+
+      - name: Upload build files
+        uses: actions/upload-artifact@v4
+        with:
+          name: StremioXbox-${{ env.BUILD_CONFIGURATION }}
+          path: |
+            artifacts/**
+            src/StremioXbox/bin/x64/${{ env.BUILD_CONFIGURATION }}/**
+          if-no-files-found: warn
