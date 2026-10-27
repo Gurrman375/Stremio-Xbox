@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   uwp-package:
+    # Do not attempt signed packaging for pull requests from forks.
     if: github.event_name != 'pull_request'
 
     runs-on: windows-2022
@@ -36,13 +37,22 @@ jobs:
             "src/StremioXbox/Package.appxmanifest"
 
           $version = "1.0.${{ github.run_number }}.0"
-
           $contents = [System.IO.File]::ReadAllText($manifest)
+
+          if ($contents -notmatch '(?m)^\s*<Identity\b[^>]*/>')
+          {
+              throw "The manifest does not contain a valid Identity element."
+          }
+
+          $identityLine =
+              '  <Identity Name="StremioXbox" Publisher="CN=StremioXbox" Version="' +
+              $version +
+              '" />'
 
           $contents = [regex]::Replace(
               $contents,
-              '(<Identity[^>]*Version=")[^"]+(")',
-              ('$1' + $version + '$2'),
+              '(?m)^\s*<Identity\b[^>]*/>',
+              $identityLine,
               1
           )
 
@@ -59,9 +69,35 @@ jobs:
               -FilePath $env:GITHUB_ENV `
               -Append
 
+      - name: Validate package manifest
+        shell: pwsh
+        run: |
+          $manifest = Join-Path `
+            $env:GITHUB_WORKSPACE `
+            "src/StremioXbox/Package.appxmanifest"
+
+          [xml]$xml = [System.IO.File]::ReadAllText($manifest)
+
+          $identity = $xml.SelectSingleNode(
+              "/*[local-name()='Package']/*[local-name()='Identity']"
+          )
+
+          if ($null -eq $identity)
+          {
+              throw "Package.appxmanifest still has no Identity element."
+          }
+
+          Write-Host "Manifest identity:"
+          Write-Host $identity.OuterXml
+
       - name: Create signing certificate
         shell: pwsh
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERT_PASSWORD))
+          {
+              throw "PACKAGE_CERTIFICATE_PASSWORD GitHub secret is missing."
+          }
+
           $cert = New-SelfSignedCertificate `
             -Type Custom `
             -Subject "CN=StremioXbox" `
@@ -139,6 +175,7 @@ jobs:
         with:
           name: StremioXbox-${{ github.run_number }}
           path: dist/
+          if-no-files-found: error
 
       - name: Publish latest release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -153,15 +190,17 @@ jobs:
               gh release delete latest --yes --cleanup-tag
           }
 
-          $notes = @"
-          Build $env:PACKAGE_VERSION from commit ${{ github.sha }}.
-
-          Install on Xbox Developer Mode through Device Portal:
-          choose the StremioXbox app package and add the other .appx files as dependencies.
-          Install StremioXbox.cer if the certificate is requested.
-          "@
-
           $title = "Stremio Xbox $env:PACKAGE_VERSION"
+
+          $notes = @"
+          Build $env:PACKAGE_VERSION
+          Commit: ${{ github.sha }}
+
+          Install through Xbox Device Portal:
+          1. Select the StremioXbox app package.
+          2. Add the other .appx files as dependencies.
+          3. Install StremioXbox.cer if the certificate is requested.
+          "@
 
           $files = Get-ChildItem dist -File |
             ForEach-Object {
