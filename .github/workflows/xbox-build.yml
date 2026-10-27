@@ -2,8 +2,11 @@ name: Build Xbox app
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
   pull_request:
+
   workflow_dispatch:
 
 permissions:
@@ -12,76 +15,172 @@ permissions:
 jobs:
   core-tests:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - run: dotnet test tests/Stremio.Core.Tests/Stremio.Core.Tests.csproj -c Release
+
+      - name: Run core tests
+        run: dotnet test tests/Stremio.Core.Tests/Stremio.Core.Tests.csproj -c Release
 
   uwp-package:
+    # Do not expose the signing process to pull requests from forks.
+    if: github.event_name != 'pull_request'
+
     runs-on: windows-2022
     needs: core-tests
+
     env:
-      CERT_PASSWORD: stremio-xbox
+      CERT_PASSWORD: ${{ secrets.PACKAGE_CERTIFICATE_PASSWORD }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - uses: microsoft/setup-msbuild@v2
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
 
-      # Each build gets a higher version so the Xbox accepts it as an update.
       - name: Set package version
         shell: pwsh
         run: |
           $manifest = "src/StremioXbox/Package.appxmanifest"
           $version = "1.0.${{ github.run_number }}.0"
-          (Get-Content $manifest -Raw) -replace 'Version="1\.0\.0\.0"', "Version=`"$version`"" | Set-Content $manifest -NoNewline
-          "PACKAGE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # Self-signed certificate; the subject must match Publisher in Package.appxmanifest.
+          $contents = Get-Content $manifest -Raw
+
+          $contents = [regex]::Replace(
+              $contents,
+              'Version="[^"]+"',
+              "Version=""$version""",
+              1
+          )
+
+          Set-Content `
+              -Path $manifest `
+              -Value $contents `
+              -NoNewline
+
+          "PACKAGE_VERSION=$version" |
+              Out-File `
+              -FilePath $env:GITHUB_ENV `
+              -Append
+
       - name: Create signing certificate
         shell: pwsh
         run: |
-          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=StremioXbox" -KeyUsage DigitalSignature `
-            -FriendlyName "StremioXbox" -CertStoreLocation "Cert:\CurrentUser\My" `
-            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
-          $password = ConvertTo-SecureString -String $env:CERT_PASSWORD -Force -AsPlainText
-          Export-PfxCertificate -Cert $cert -FilePath "$env:RUNNER_TEMP\StremioXbox.pfx" -Password $password | Out-Null
-          Export-Certificate -Cert $cert -FilePath "$env:RUNNER_TEMP\StremioXbox.cer" | Out-Null
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -Subject "CN=StremioXbox" `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "StremioXbox" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @(
+                "2.5.29.37={text}1.3.6.1.5.5.7.3.3",
+                "2.5.29.19={text}"
+            )
 
-      - name: Build and package (Release x64)
+          $password = ConvertTo-SecureString `
+            -String $env:CERT_PASSWORD `
+            -Force `
+            -AsPlainText
+
+          Export-PfxCertificate `
+            -Cert $cert `
+            -FilePath "$env:RUNNER_TEMP\StremioXbox.pfx" `
+            -Password $password |
+            Out-Null
+
+          Export-Certificate `
+            -Cert $cert `
+            -FilePath "$env:RUNNER_TEMP\StremioXbox.cer" |
+            Out-Null
+
+      - name: Build and package Release x64
         shell: pwsh
         run: |
-          msbuild src/StremioXbox/StremioXbox.csproj /restore /m `
-            /p:Configuration=Release /p:Platform=x64 `
-            /p:UapAppxPackageBuildMode=SideloadOnly /p:AppxBundle=Never `
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path out |
+            Out-Null
+
+          msbuild src/StremioXbox/StremioXbox.csproj `
+            /restore `
+            /m `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxBundle=Never `
             /p:AppxPackageSigningEnabled=true `
             /p:PackageCertificateKeyFile="$env:RUNNER_TEMP\StremioXbox.pfx" `
-            /p:PackageCertificatePassword=$env:CERT_PASSWORD `
+            /p:PackageCertificatePassword="$env:CERT_PASSWORD" `
             /p:AppxPackageDir="$env:GITHUB_WORKSPACE\out\"
 
-      # Flatten into the files Device Portal asks for: the app package plus its dependency packages.
       - name: Collect install files
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Get-ChildItem out -Recurse -Include *.msix,*.appx | Where-Object { $_.FullName -notmatch '\\(arm|arm64|x86)\\' } |
-            ForEach-Object { Copy-Item $_.FullName dist\ }
-          Copy-Item "$env:RUNNER_TEMP\StremioXbox.cer" dist\
-          Get-ChildItem dist | Format-Table Name, Length
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path dist |
+            Out-Null
 
-      - uses: actions/upload-artifact@v4
+          Get-ChildItem out -Recurse -Include *.msix,*.appx |
+            Where-Object {
+              $_.FullName -notmatch '\\(arm|arm64|x86)\\'
+            } |
+            ForEach-Object {
+              Copy-Item $_.FullName dist\
+            }
+
+          Copy-Item `
+            "$env:RUNNER_TEMP\StremioXbox.cer" `
+            dist\
+
+          Get-ChildItem dist |
+            Format-Table Name, Length
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: StremioXbox-${{ env.PACKAGE_VERSION }}
+          name: StremioXbox-${{ github.run_number }}
           path: dist/
 
-      # A rolling "latest" release gives direct per-file download links that work from a phone browser.
       - name: Publish latest release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --yes --cleanup-tag 2>$null
-          $notes = "Build ${{ env.PACKAGE_VERSION }} from ${{ github.sha }}. Install on Xbox Dev Mode via Device Portal: choose the StremioXbox .msix as the app package and add every other .appx file as a dependency. See README."
-          gh release create latest (Get-ChildItem dist).FullName --title "Stremio Xbox ${{ env.PACKAGE_VERSION }}" --notes $notes --target ${{ github.sha }}
+          gh release view latest *> $null
+
+          if ($LASTEXITCODE -eq 0)
+          {
+              gh release delete latest --yes --cleanup-tag
+          }
+
+          $notes = @"
+          Build $env:PACKAGE_VERSION from commit ${{ github.sha }}.
+
+          Install on Xbox Developer Mode through Device Portal:
+          choose the StremioXbox app package and add the other .appx files as dependencies.
+          Install StremioXbox.cer if the certificate is requested.
+          "@
+
+          $title = "Stremio Xbox $env:PACKAGE_VERSION"
+
+          $files = Get-ChildItem dist -File |
+            ForEach-Object {
+              $_.FullName
+            }
+
+          gh release create latest `
+            $files `
+            --title $title `
+            --notes $notes `
+            --target ${{ github.sha }}
