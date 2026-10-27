@@ -14,6 +14,7 @@ namespace StremioXbox.Views
         public string Type { get; set; }
         public string VideoId { get; set; }
         public string Title { get; set; }
+        public string Background { get; set; }
     }
 
     public class PlayerArgs

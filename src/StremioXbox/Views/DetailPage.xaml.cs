@@ -85,14 +85,37 @@ namespace StremioXbox.Views
 
         private void PlayButton_Click(object sender, RoutedEventArgs e)
         {
-            Frame.Navigate(typeof(StreamsPage), new StreamsArgs { Type = _args.Type, VideoId = _meta.Id, Title = _meta.Name });
+            Frame.Navigate(
+                typeof(StreamsPage),
+                new StreamsArgs
+                {
+                    Type = _args.Type,
+                    VideoId = _meta.Id,
+                    Title = _meta.Name,
+                    Background = _meta.Background
+                });
         }
 
         private void Episodes_ItemClick(object sender, ItemClickEventArgs e)
         {
             var video = (Video)e.ClickedItem;
-            var title = _meta.Name + " S" + (video.Season ?? 0).ToString("00") + "E" + (video.Episode ?? 0).ToString("00");
-            Frame.Navigate(typeof(StreamsPage), new StreamsArgs { Type = _args.Type, VideoId = video.Id, Title = title });
+
+            var title =
+                _meta.Name +
+                " S" +
+                (video.Season ?? 0).ToString("00") +
+                "E" +
+                (video.Episode ?? 0).ToString("00");
+
+            Frame.Navigate(
+                typeof(StreamsPage),
+                new StreamsArgs
+                {
+                    Type = _args.Type,
+                    VideoId = video.Id,
+                    Title = title,
+                    Background = _meta.Background
+                });
         }
     }
 }

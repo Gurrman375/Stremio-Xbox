@@ -140,6 +140,39 @@ namespace Stremio.Core.Addons
             return FanOutAsync("stream", type, id, a => _client.GetStreamsAsync(a, type, id, ct));
         }
 
+        public async Task<List<Stream>> GetStreamsIncrementalAsync(string type, string id, IProgress<List<Stream>> progress, CancellationToken ct = default(CancellationToken))
+            {
+                var allStreams = new List<Stream>();
+                var sync = new object();
+
+                var tasks = Addons
+                    .Where(a => a.Supports("stream", type, id))
+                    .Select(async addon =>
+                    {
+                        try
+                        {
+                            var streams = await _client
+                                .GetStreamsAsync(addon, type, id, ct)
+                                .ConfigureAwait(false);
+
+                            lock (sync)
+                            {
+                                allStreams.AddRange(streams);
+                            }
+
+                            progress?.Report(streams);
+                        }
+                        catch (Exception)
+                        {
+                            // One failing addon should not stop the others.
+                        }
+                    });
+
+                await Task.WhenAll(tasks);
+
+                return allStreams;
+            }
+
         public Task<List<Subtitle>> GetSubtitlesAsync(string type, string id, CancellationToken ct = default(CancellationToken))
         {
             return FanOutAsync("subtitles", type, id, a => _client.GetSubtitlesAsync(a, type, id, ct));
