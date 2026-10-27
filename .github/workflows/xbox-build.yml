@@ -31,22 +31,28 @@ jobs:
       - name: Set package version
         shell: pwsh
         run: |
-          $manifest = "src/StremioXbox/Package.appxmanifest"
+          $manifest = Join-Path `
+            $env:GITHUB_WORKSPACE `
+            "src/StremioXbox/Package.appxmanifest"
+
           $version = "1.0.${{ github.run_number }}.0"
 
-          $contents = Get-Content $manifest -Raw
+          $contents = [System.IO.File]::ReadAllText($manifest)
 
           $contents = [regex]::Replace(
               $contents,
-              'Version="[^"]+"',
-              "Version=""$version""",
+              '(<Identity[^>]*Version=")[^"]+(")',
+              ('$1' + $version + '$2'),
               1
           )
 
-          Set-Content `
-              -Path $manifest `
-              -Value $contents `
-              -NoNewline
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          [System.IO.File]::WriteAllText(
+              $manifest,
+              $contents,
+              $utf8NoBom
+          )
 
           "PACKAGE_VERSION=$version" |
               Out-File `
