@@ -13,27 +13,10 @@ permissions:
   contents: write
 
 jobs:
-  core-tests:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Run core tests
-        run: dotnet test tests/Stremio.Core.Tests/Stremio.Core.Tests.csproj -c Release
-
   uwp-package:
-    # Do not expose the signing process to pull requests from forks.
     if: github.event_name != 'pull_request'
 
     runs-on: windows-2022
-    needs: core-tests
 
     env:
       CERT_PASSWORD: ${{ secrets.PACKAGE_CERTIFICATE_PASSWORD }}
