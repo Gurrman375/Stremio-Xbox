@@ -78,5 +78,11 @@ namespace Stremio.Core.Settings
         {
             get { return !string.IsNullOrEmpty(AuthKey); }
         }
+
+        public bool UseTvSafeMargin
+        {
+            get { return _store.Get("useTvSafeMargin") != "false"; }
+            set { _store.Set("useTvSafeMargin", value ? "true" : "false"); }
+        }
     }
 }

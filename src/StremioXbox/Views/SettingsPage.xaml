@@ -11,6 +11,16 @@
                 <TextBox x:Name="Email" Header="Email" InputScope="EmailSmtpAddress" Width="500" HorizontalAlignment="Left" />
                 <PasswordBox x:Name="Password" Header="Password" Width="500" HorizontalAlignment="Left" />
                 <Button x:Name="LoginButton" Content="Log in" Style="{StaticResource AccentButtonStyle}" Click="Login_Click" />
+                <Button x:Name="QrLoginButton" Content="Sign in with QR code" Click="QrLogin_Click" />
+                <StackPanel x:Name="QrLoginPanel" Visibility="Collapsed" Spacing="8">
+                    <TextBlock Text="Scan this QR code with your phone to link your Stremio account." TextWrapping="Wrap" />
+                    <Image x:Name="QrCodeImage" Width="280" Height="280" Stretch="Uniform" HorizontalAlignment="Left" />
+                    <TextBlock Text="Or enter this code at link.stremio.com:" TextWrapping="Wrap" />
+                    <TextBlock x:Name="QrCodeText" FontSize="28" FontWeight="Bold" />
+                    <TextBlock x:Name="QrLoginStatus" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    <Button Content="Cancel" Click="CancelQrLogin_Click" HorizontalAlignment="Left" />
+                </StackPanel>
+
             </StackPanel>
             <StackPanel x:Name="AccountPanel" Orientation="Horizontal" Spacing="16" Visibility="Collapsed">
                 <TextBlock x:Name="AccountText" VerticalAlignment="Center" />
@@ -28,6 +38,8 @@
             <ToggleSwitch x:Name="Passthrough" Header="Audio passthrough (Dolby/DTS to TV or receiver)" Toggled="Passthrough_Toggled" />
             <ToggleSwitch x:Name="MatchDisplay" Header="Match display mode (4K / HDR10 / frame rate)" Toggled="MatchDisplay_Toggled" />
 
+            <ToggleSwitch x:Name="TvSafeMarginsToggle" Header="Use TV-safe margins" OnContent="TV-safe" OffContent="Fullscreen" Toggled="TvSafeMarginsToggle_Toggled" />
+            
             <TextBlock Text="Addons" Style="{StaticResource SectionHeaderStyle}" />
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <TextBox x:Name="AddonUrl" PlaceholderText="https://example.com/manifest.json" Width="600" InputScope="Url" />

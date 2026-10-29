@@ -1,3 +1,4 @@
+using StremioXbox.Services;
 using System;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -16,6 +17,8 @@ namespace StremioXbox.Views
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
+            ApplyDisplayMargins();
+
             if (Nav.SelectedItem == null)
                 Nav.SelectedItem = Nav.MenuItems[0];
         }
@@ -52,6 +55,13 @@ namespace StremioXbox.Views
         public static void ShowPlayer(PlayerArgs args)
         {
             App.RootFrame.Navigate(typeof(PlayerPage), args);
+        }
+
+        public void ApplyDisplayMargins()
+        {
+            Nav.Margin = AppServices.Settings.UseTvSafeMargin
+                ? new Thickness(48, 27, 48, 27)
+                : new Thickness(0);
         }
     }
 }
