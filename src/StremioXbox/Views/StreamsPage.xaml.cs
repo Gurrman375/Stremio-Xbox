@@ -1,17 +1,19 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Stremio.Core.Addons;
 using Stremio.Core.Streaming;
 using StremioXbox.Services;
+using Windows.System;
+using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Navigation;
-using System.Collections.ObjectModel;
-using System.Threading;
-using Windows.System;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
+using Windows.UI.Xaml.Navigation;
 
 namespace StremioXbox.Views
 {
@@ -20,11 +22,14 @@ namespace StremioXbox.Views
         private StreamsArgs _args;
         private Task<List<Subtitle>> _subtitles;
 
-        private readonly List<Stream> _allStreams = new List<Stream>();
+        private readonly List<Stream> _allStreams =
+            new List<Stream>();
 
-        private readonly ObservableCollection<Stream> _visibleStreams = new ObservableCollection<Stream>();
+        private readonly ObservableCollection<StreamListItem> _visibleStreams =
+            new ObservableCollection<StreamListItem>();
 
-        private readonly ObservableCollection<string> _sources = new ObservableCollection<string>();
+        private readonly ObservableCollection<string> _sources =
+            new ObservableCollection<string>();
 
         private CancellationTokenSource _loadCts;
 
@@ -37,16 +42,33 @@ namespace StremioXbox.Views
 
             _sources.Add("All");
             SourceFilter.SelectedIndex = 0;
+
+            UpdateStreamWarningVisibility();
         }
 
-        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        protected override async void OnNavigatedTo(
+            NavigationEventArgs e)
         {
+            base.OnNavigatedTo(e);
+
             _args = (StreamsArgs)e.Parameter;
             Header.Text = _args.Title ?? "";
 
             SetImage(Backdrop, _args.Background);
 
-            List<Stream> streams = new List<Stream>();
+            _loadCts?.Cancel();
+            _loadCts = new CancellationTokenSource();
+
+            _allStreams.Clear();
+            _visibleStreams.Clear();
+
+            _sources.Clear();
+            _sources.Add("All");
+            SourceFilter.SelectedIndex = 0;
+
+            Loading.IsActive = true;
+            Loading.Visibility = Visibility.Visible;
+
             try
             {
                 await AppServices.EnsureAddonsLoadedAsync();
@@ -55,47 +77,51 @@ namespace StremioXbox.Views
                     _args.Type,
                     _args.VideoId);
 
-                _allStreams.Clear();
-                _visibleStreams.Clear();
-                _sources.Clear();
-                _sources.Add("All");
-
-                _loadCts?.Cancel();
-                _loadCts = new CancellationTokenSource();
-
-                var progress = new Progress<List<Stream>>(batch =>
-                {
-                    foreach (var stream in batch)
+                var progress =
+                    new Progress<List<Stream>>(batch =>
                     {
-                        _allStreams.Add(stream);
+                        foreach (var stream in batch)
+                        {
+                            _allStreams.Add(stream);
 
-                        var source = string.IsNullOrWhiteSpace(stream.AddonName)
-                            ? "Unknown"
-                            : stream.AddonName;
+                            var source =
+                                string.IsNullOrWhiteSpace(stream.AddonName)
+                                    ? "Unknown"
+                                    : stream.AddonName;
 
-                        if (!_sources.Contains(source))
-                            _sources.Add(source);
-                    }
+                            if (!_sources.Contains(source))
+                                _sources.Add(source);
+                        }
 
-                    ApplyStreamFilter();
-                    UpdateStreamStatus();
-                });
+                        ApplyStreamFilter();
+                        UpdateStreamStatus();
+                        UpdateStreamWarningVisibility();
+                    });
 
-                streams = await AppServices.Addons.GetStreamsIncrementalAsync(
+                await AppServices.Addons.GetStreamsIncrementalAsync(
                     _args.Type,
                     _args.VideoId,
                     progress,
                     _loadCts.Token);
             }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
             catch (Exception ex)
             {
-                Status.Text = "Couldn't load streams: " + ex.Message;
+                Status.Text =
+                    "Couldn't load streams: " + ex.Message;
             }
-            Loading.IsActive = false;
-            Loading.Visibility = Visibility.Collapsed;
+            finally
+            {
+                Loading.IsActive = false;
+                Loading.Visibility = Visibility.Collapsed;
+            }
 
             ApplyStreamFilter();
             UpdateStreamStatus();
+            UpdateStreamWarningVisibility();
 
             if (_visibleStreams.Count > 0)
             {
@@ -107,12 +133,27 @@ namespace StremioXbox.Views
         }
 
         private async void StreamList_ItemClick(
-    object sender,
-    ItemClickEventArgs e)
+            object sender,
+            ItemClickEventArgs e)
         {
-            var stream = (Stream)e.ClickedItem;
+            var item = e.ClickedItem as StreamListItem;
 
-            var resolved = StreamResolver.Resolve(stream, AppServices.Settings.StreamingServerUrl);
+            if (item == null)
+                return;
+
+            if (item.RequiresServer)
+            {
+                await FlashServerWarningAsync();
+                return;
+            }
+
+            var stream = item.Stream;
+
+            var server =
+                AppServices.Settings.StreamingServerUrl;
+
+            var resolved =
+                StreamResolver.Resolve(stream, server);
 
             if (resolved == null)
             {
@@ -127,31 +168,87 @@ namespace StremioXbox.Views
                 return;
             }
 
+            var subtitles =
+                new List<Subtitle>(resolved.Subtitles);
 
-            var subtitles = new List<Subtitle>(resolved.Subtitles);
             try
             {
                 if (_subtitles != null)
                     subtitles.AddRange(await _subtitles);
             }
-            catch (Exception)
+            catch
             {
                 // Play without addon subtitles.
             }
 
-            var text = ((stream.Name ?? "") + " " + (stream.Title ?? "") + " " + (stream.Description ?? "")).ToUpperInvariant();
+            var text =
+                (stream.Name ?? "") + " " +
+                (stream.Title ?? "") + " " +
+                (stream.Description ?? "");
+
+            text = text.ToUpperInvariant();
+
             ShellPage.ShowPlayer(new PlayerArgs
             {
                 Url = resolved.Url,
                 Headers = resolved.Headers,
                 Title = _args.Title,
                 Subtitles = subtitles,
-                LooksHdr = text.Contains("HDR") || text.Contains("DOLBY VISION") || text.Contains(" DV"),
+                LooksHdr =
+                    text.Contains("HDR") ||
+                    text.Contains("DOLBY VISION") ||
+                    text.Contains(" DV")
             });
         }
+
+        private async Task FlashServerWarningAsync()
+        {
+            if (!string.IsNullOrWhiteSpace(
+                AppServices.Settings.StreamingServerUrl))
+            {
+                return;
+            }
+
+            for (int i = 0; i < 3; i++)
+            {
+                StreamWarning.Visibility =
+                    Visibility.Collapsed;
+
+                await Task.Delay(120);
+
+                StreamWarning.Visibility =
+                    Visibility.Visible;
+
+                await Task.Delay(180);
+            }
+
+            StreamWarning.Visibility =
+                Visibility.Visible;
+        }
+
+        private void UpdateStreamWarningVisibility()
+        {
+            StreamWarning.Visibility =
+                string.IsNullOrWhiteSpace(
+                    AppServices.Settings.StreamingServerUrl)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+
+        private static bool RequiresServer(
+            Stream stream,
+            string server)
+        {
+            return string.IsNullOrWhiteSpace(server) &&
+                   !StreamResolver.IsPlayable(stream, server) &&
+                   string.IsNullOrWhiteSpace(
+                       stream.ExternalUrl);
+        }
+
         private static int GetQualityRank(Stream stream)
         {
-            var text = string.Join(" ",
+            var text = string.Join(
+                " ",
                 stream.Name ?? "",
                 stream.Title ?? "",
                 stream.Description ?? "",
@@ -161,7 +258,9 @@ namespace StremioXbox.Views
             if (text.Contains("2160") ||
                 text.Contains("4K") ||
                 text.Contains("UHD"))
+            {
                 return 4;
+            }
 
             if (text.Contains("1080"))
                 return 3;
@@ -175,53 +274,74 @@ namespace StremioXbox.Views
             return 0;
         }
 
-        private void SourceFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
-                {
-                    ApplyStreamFilter();
-                }
+        private void SourceFilter_SelectionChanged(
+            object sender,
+            SelectionChangedEventArgs e)
+        {
+            ApplyStreamFilter();
+        }
 
         private void ApplyStreamFilter()
         {
-            var selectedSource = SourceFilter.SelectedItem as string;
+            var selectedSource =
+                SourceFilter.SelectedItem as string;
 
-            var streams = _allStreams.AsEnumerable();
+            var server =
+                AppServices.Settings.StreamingServerUrl;
+
+            IEnumerable<Stream> streams =
+                _allStreams.AsEnumerable();
 
             if (!string.IsNullOrEmpty(selectedSource) &&
                 selectedSource != "All")
             {
-                streams = streams.Where(s =>
+                streams = streams.Where(stream =>
                     string.Equals(
-                        s.AddonName,
+                        stream.AddonName,
                         selectedSource,
                         StringComparison.OrdinalIgnoreCase));
             }
 
             var sorted = streams
-                .OrderByDescending(s =>
+                .OrderByDescending(stream =>
                     StreamResolver.IsPlayable(
-                        s,
-                        AppServices.Settings.StreamingServerUrl))
-                .ThenBy(s => s.AddonName ?? "Unknown",
+                        stream,
+                        server))
+                .ThenBy(
+                    stream => stream.AddonName ?? "Unknown",
                     StringComparer.OrdinalIgnoreCase)
                 .ThenByDescending(GetQualityRank)
-                .ThenBy(s => s.Label ?? "",
+                .ThenBy(
+                    stream => stream.Label ?? "",
                     StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             _visibleStreams.Clear();
 
             foreach (var stream in sorted)
-                _visibleStreams.Add(stream);
+            {
+                _visibleStreams.Add(
+                    new StreamListItem(
+                        stream,
+                        RequiresServer(stream, server)));
+            }
         }
 
         private void UpdateStreamStatus()
         {
-            var server = AppServices.Settings.StreamingServerUrl;
+            var server =
+                AppServices.Settings.StreamingServerUrl;
 
-            var playable = _allStreams.Count(s =>
-                StreamResolver.IsPlayable(s, server));
+            var playable = _allStreams.Count(stream =>
+                StreamResolver.IsPlayable(stream, server));
 
-            var informational = _allStreams.Count - playable;
+            var requiresServer = _allStreams.Count(stream =>
+                RequiresServer(stream, server));
+
+            var informational =
+                _allStreams.Count -
+                playable -
+                requiresServer;
 
             if (_allStreams.Count == 0)
             {
@@ -232,17 +352,98 @@ namespace StremioXbox.Views
             Status.Text =
                 playable + " playable stream(s)";
 
+            if (requiresServer > 0)
+            {
+                Status.Text +=
+                    " • " +
+                    requiresServer +
+                    " server-required stream(s)";
+            }
+
             if (informational > 0)
             {
                 Status.Text +=
-                    " � " + informational +
+                    " • " +
+                    informational +
                     " addon information/link item(s)";
             }
         }
-        private static void SetImage(Image image, string url)
+
+        private static void SetImage(
+            Image image,
+            string url)
         {
-            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            image.Source = null;
+
+            if (Uri.TryCreate(
+                url,
+                UriKind.Absolute,
+                out var uri))
+            {
                 image.Source = new BitmapImage(uri);
+            }
+        }
+    }
+
+    public sealed class StreamListItem
+    {
+        public Stream Stream { get; }
+
+        public bool RequiresServer { get; }
+
+        public string Name =>
+            Stream.Name ?? "";
+
+        public string Label =>
+            Stream.Label ?? "";
+
+        public string AddonName =>
+            Stream.AddonName ?? "Unknown";
+
+        public string LockIcon =>
+            RequiresServer ? "🔒" : "";
+
+        public Visibility LockVisibility =>
+            RequiresServer
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        public Brush NameBrush =>
+            RequiresServer
+                ? new SolidColorBrush(Colors.Red)
+                : GetBrush("AccentPurpleBrush");
+
+        public Brush TextBrush =>
+            RequiresServer
+                ? new SolidColorBrush(Colors.Red)
+                : GetBrush("ApplicationForegroundThemeBrush");
+
+        public Brush MutedBrush =>
+            RequiresServer
+                ? new SolidColorBrush(Colors.Red)
+                : GetBrush("MutedTextBrush");
+
+        public StreamListItem(
+            Stream stream,
+            bool requiresServer)
+        {
+            Stream = stream;
+            RequiresServer = requiresServer;
+        }
+
+        private static Brush GetBrush(
+            string resourceName)
+        {
+            var resources =
+                Application.Current.Resources;
+
+            if (resources.ContainsKey(resourceName) &&
+                resources[resourceName] is Brush brush)
+            {
+                return brush;
+            }
+
+            return new SolidColorBrush(Colors.White);
         }
     }
 }

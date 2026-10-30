@@ -3,60 +3,195 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <ScrollViewer Padding="8">
-        <StackPanel MaxWidth="900" HorizontalAlignment="Left" Spacing="10" XYFocusKeyboardNavigation="Enabled">
+    <Grid>
+        <ScrollViewer
+            Padding="8"
+            IsTabStop="False"
+            VerticalScrollBarVisibility="Hidden"
+            VerticalScrollMode="Disabled"
+            HorizontalScrollBarVisibility="Hidden"
+            HorizontalScrollMode="Disabled"
+            XYFocusKeyboardNavigation="Enabled">
 
-            <TextBlock Text="Stremio account" Style="{StaticResource SectionHeaderStyle}" />
-            <StackPanel x:Name="LoginPanel" Spacing="10">
-                <TextBox x:Name="Email" Header="Email" InputScope="EmailSmtpAddress" Width="500" HorizontalAlignment="Left" />
-                <PasswordBox x:Name="Password" Header="Password" Width="500" HorizontalAlignment="Left" />
-                <Button x:Name="LoginButton" Content="Log in" Style="{StaticResource AccentButtonStyle}" Click="Login_Click" />
-                <Button x:Name="QrLoginButton" Content="Sign in with QR code" Click="QrLogin_Click" />
-                <StackPanel x:Name="QrLoginPanel" Visibility="Collapsed" Spacing="8">
-                    <TextBlock Text="Scan this QR code with your phone to link your Stremio account." TextWrapping="Wrap" />
-                    <Image x:Name="QrCodeImage" Width="280" Height="280" Stretch="Uniform" HorizontalAlignment="Left" />
-                    <TextBlock Text="Or enter this code at link.stremio.com:" TextWrapping="Wrap" />
-                    <TextBlock x:Name="QrCodeText" FontSize="28" FontWeight="Bold" />
-                    <TextBlock x:Name="QrLoginStatus" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
-                    <Button Content="Cancel" Click="CancelQrLogin_Click" HorizontalAlignment="Left" />
+            <StackPanel
+                MaxWidth="900"
+                HorizontalAlignment="Left"
+                Spacing="10"
+                XYFocusKeyboardNavigation="Enabled">
+
+                <TextBlock
+                    Text="Stremio account"
+                    Style="{StaticResource SectionHeaderStyle}" />
+
+                <StackPanel
+                    x:Name="LoginPanel"
+                    Spacing="10">
+
+                    <TextBox
+                        x:Name="Email"
+                        Header="Email"
+                        InputScope="EmailSmtpAddress"
+                        Width="500"
+                        HorizontalAlignment="Left" />
+
+                    <PasswordBox
+                        x:Name="Password"
+                        Header="Password"
+                        Width="500"
+                        HorizontalAlignment="Left" />
+
+                    <Button
+                        x:Name="LoginButton"
+                        Content="Log in"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Click="Login_Click" />
+
+                    <Button
+                        x:Name="QrLoginButton"
+                        Content="Log in with QR code"
+                        Click="QrLogin_Click" />
                 </StackPanel>
 
-            </StackPanel>
-            <StackPanel x:Name="AccountPanel" Orientation="Horizontal" Spacing="16" Visibility="Collapsed">
-                <TextBlock x:Name="AccountText" VerticalAlignment="Center" />
-                <Button Content="Log out" Click="Logout_Click" />
-            </StackPanel>
-            <TextBlock x:Name="AccountStatus" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                <StackPanel
+                    x:Name="QrLoginPanel"
+                    Visibility="Collapsed"
+                    Spacing="8">
 
-            <TextBlock Text="Playback" Style="{StaticResource SectionHeaderStyle}" />
-            <TextBox x:Name="ServerUrl" Header="Streaming server (optional, for torrent streams)"
-                     PlaceholderText="http://192.168.1.20:11470" Width="500" HorizontalAlignment="Left"
-                     InputScope="Url" LostFocus="ServerUrl_LostFocus" />
-            <TextBlock Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
-                       Text="Torrents need the Stremio streaming server running on another device on your network (PC, NAS, Android box). Debrid and direct links play without it." />
-            <ComboBox x:Name="SubtitleLang" Header="Preferred subtitle language" Width="300" SelectionChanged="SubtitleLang_SelectionChanged" />
-            <ToggleSwitch x:Name="Passthrough" Header="Audio passthrough (Dolby/DTS to TV or receiver)" Toggled="Passthrough_Toggled" />
-            <ToggleSwitch x:Name="MatchDisplay" Header="Match display mode (4K / HDR10 / frame rate)" Toggled="MatchDisplay_Toggled" />
+                    <TextBlock
+                        Text="QR code login"
+                        FontSize="20"
+                        FontWeight="SemiBold" />
 
-            <ToggleSwitch x:Name="TvSafeMarginsToggle" Header="Use TV-safe margins" OnContent="TV-safe" OffContent="Fullscreen" Toggled="TvSafeMarginsToggle_Toggled" />
-            
-            <TextBlock Text="Addons" Style="{StaticResource SectionHeaderStyle}" />
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <TextBox x:Name="AddonUrl" PlaceholderText="https://example.com/manifest.json" Width="600" InputScope="Url" />
-                <Button Content="Add" Click="AddAddon_Click" />
+                    <Image
+                        x:Name="QrCodeImage"
+                        Width="360"
+                        Height="360"
+                        Stretch="Uniform"
+                        HorizontalAlignment="Left" />
+
+                    <TextBlock
+                        x:Name="QrCodeText"
+                        TextWrapping="Wrap" />
+
+                    <TextBlock
+                        x:Name="QrLoginStatus"
+                        Foreground="{StaticResource MutedTextBrush}"
+                        TextWrapping="Wrap"
+                        MaxWidth="600" />
+
+                    <Button
+                        Content="Cancel QR login"
+                        Click="CancelQrLogin_Click" />
+                </StackPanel>
+
+                <StackPanel
+                    x:Name="AccountPanel"
+                    Orientation="Horizontal"
+                    Spacing="16"
+                    Visibility="Collapsed">
+
+                    <TextBlock
+                        x:Name="AccountText"
+                        VerticalAlignment="Center" />
+
+                    <Button
+                        Content="Log out"
+                        Click="Logout_Click" />
+                </StackPanel>
+
+                <TextBlock
+                    x:Name="AccountStatus"
+                    Foreground="{StaticResource MutedTextBrush}"
+                    TextWrapping="Wrap" />
+
+                <TextBlock
+                    Text="Playback"
+                    Style="{StaticResource SectionHeaderStyle}" />
+
+                <TextBox
+                    x:Name="ServerUrl"
+                    Header="Streaming server (optional, for torrent streams)"
+                    PlaceholderText="http://192.168.1.20:11470"
+                    Width="500"
+                    HorizontalAlignment="Left"
+                    InputScope="Url"
+                    LostFocus="ServerUrl_LostFocus" />
+
+                <TextBlock
+                    Foreground="{StaticResource MutedTextBrush}"
+                    TextWrapping="Wrap"
+                    Text="Torrents need the Stremio streaming server running on another device on your network. Debrid and direct links play without it." />
+
+                <ComboBox
+                    x:Name="SubtitleLang"
+                    Header="Preferred subtitle language"
+                    Width="300"
+                    SelectionChanged="SubtitleLang_SelectionChanged" />
+
+                <ToggleSwitch
+                    x:Name="Passthrough"
+                    Header="Audio passthrough (Dolby/DTS to TV or receiver)"
+                    Toggled="Passthrough_Toggled" />
+
+                <ToggleSwitch
+                    x:Name="MatchDisplay"
+                    Header="Match display mode (4K / HDR10 / frame rate)"
+                    Toggled="MatchDisplay_Toggled" />
+
+                <ToggleSwitch
+                    x:Name="TvSafeMarginsToggle"
+                    Header="Use TV-safe margins"
+                    Toggled="TvSafeMarginsToggle_Toggled" />
+
+                <TextBlock
+                    Text="Addons"
+                    Style="{StaticResource SectionHeaderStyle}" />
+
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="10">
+
+                    <TextBox
+                        x:Name="AddonUrl"
+                        PlaceholderText="https://example.com/manifest.json"
+                        Width="600"
+                        InputScope="Url" />
+
+                    <Button
+                        Content="Add"
+                        Click="AddAddon_Click" />
+                </StackPanel>
+
+                <TextBlock
+                    x:Name="AddonStatus"
+                    Foreground="{StaticResource MutedTextBrush}"
+                    TextWrapping="Wrap" />
+
+                <ListView
+                    x:Name="AddonList"
+                    SelectionMode="None"
+                    IsItemClickEnabled="False"
+                    IsTabStop="False">
+
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel
+                                Padding="0,4">
+
+                                <TextBlock
+                                    Text="{Binding Name}"
+                                    FontWeight="SemiBold" />
+
+                                <TextBlock
+                                    Text="{Binding Description}"
+                                    FontSize="13"
+                                    TextTrimming="CharacterEllipsis"
+                                    Foreground="{StaticResource MutedTextBrush}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </StackPanel>
-            <TextBlock x:Name="AddonStatus" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
-            <ListView x:Name="AddonList" SelectionMode="None" IsItemClickEnabled="False">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Padding="0,4">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Description}" FontSize="13" TextTrimming="CharacterEllipsis"
-                                       Foreground="{StaticResource MutedTextBrush}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Page>

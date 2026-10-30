@@ -2,21 +2,25 @@
     x:Class="StremioXbox.Views.ShellPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Background="{StaticResource AppBackgroundBrush}">
+    Background="{StaticResource AppBackgroundBrush}"
+    XYFocusKeyboardNavigation="Disabled">
 
-    <NavigationView x:Name="Nav"
-                    Margin="{StaticResource TvSafeMargin}"
-                    PaneDisplayMode="Top"
-                    IsBackButtonVisible="Collapsed"
-                    IsSettingsVisible="False"
-                    SelectionChanged="Nav_SelectionChanged">
+    <NavigationView
+        x:Name="Nav"
+        Margin="{StaticResource TvSafeMargin}"
+        PaneDisplayMode="Top"
+        IsBackButtonVisible="Collapsed"
+        IsSettingsVisible="False"
+        IsTabStop="False"
+        XYFocusKeyboardNavigation="Disabled"
+        SelectionChanged="Nav_SelectionChanged">
         <NavigationView.MenuItems>
-            <NavigationViewItem Content="Board" Tag="board" Icon="Home" />
-            <NavigationViewItem Content="Search" Tag="search" Icon="Find" />
-            <NavigationViewItem Content="Library" Tag="library" Icon="Library" />
-            <NavigationViewItem Content="Settings" Tag="settings" Icon="Setting" />
+            <NavigationViewItem Content="Board" Tag="board" Icon="Home" IsTabStop="False" />
+            <NavigationViewItem Content="Search" Tag="search" Icon="Find" IsTabStop="False" />
+            <NavigationViewItem Content="Library" Tag="library" Icon="Library" IsTabStop="False" />
+            <NavigationViewItem Content="Settings" Tag="settings" Icon="Setting" IsTabStop="False" />
         </NavigationView.MenuItems>
 
-        <Frame x:Name="ContentFrame" />
+        <Frame x:Name="ContentFrame" IsTabStop="False" />
     </NavigationView>
 </Page>

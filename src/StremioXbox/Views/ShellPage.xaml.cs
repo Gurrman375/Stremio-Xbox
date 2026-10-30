@@ -1,7 +1,12 @@
-using StremioXbox.Services;
 using System;
+using System.Linq;
+using StremioXbox.Services;
+using Windows.System;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
 
 namespace StremioXbox.Views
@@ -11,45 +16,141 @@ namespace StremioXbox.Views
         public ShellPage()
         {
             InitializeComponent();
-            NavigationCacheMode = NavigationCacheMode.Required;
+            NavigationCacheMode = Windows.UI.Xaml.Navigation.NavigationCacheMode.Required;
             Loaded += OnLoaded;
+
+            // NavigationView does not always bubble Xbox shoulder buttons through
+            // the normal XAML key event route, so listen at the window level too.
+            if (Window.Current?.CoreWindow != null)
+                Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             ApplyDisplayMargins();
 
-            if (Nav.SelectedItem == null)
+            if (Nav.SelectedItem == null && Nav.MenuItems.Count > 0)
                 Nav.SelectedItem = Nav.MenuItems[0];
+
+            FocusContentAfterNavigation();
         }
 
-        // Back from a detail page returns within the content frame before leaving the shell.
+        private void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
+        {
+            if (HandleControllerKey(args.VirtualKey))
+                args.Handled = true;
+        }
+
+        private bool HandleControllerKey(VirtualKey key)
+        {
+            if (key == VirtualKey.GamepadLeftShoulder)
+            {
+                SelectAdjacentTab(-1);
+                return true;
+            }
+
+            if (key == VirtualKey.GamepadRightShoulder)
+            {
+                SelectAdjacentTab(1);
+                return true;
+            }
+
+            // Prevent the D-pad from selecting or entering the top navigation.
+            // D-pad navigation inside the content pages remains available because
+            // the top NavigationView has directional focus disabled in XAML.
+            return false;
+        }
+
+        private void SelectAdjacentTab(int direction)
+        {
+            var items = Nav.MenuItems.OfType<NavigationViewItem>().ToList();
+            if (items.Count == 0)
+                return;
+
+            var currentIndex = items.FindIndex(item => ReferenceEquals(item, Nav.SelectedItem));
+            if (currentIndex < 0)
+                currentIndex = 0;
+
+            var nextIndex = currentIndex + direction;
+            if (nextIndex < 0)
+                nextIndex = items.Count - 1;
+            else if (nextIndex >= items.Count)
+                nextIndex = 0;
+
+            Nav.SelectedItem = items[nextIndex];
+        }
+
         public bool TryGoBack()
         {
             if (!ContentFrame.CanGoBack)
                 return false;
+
             ContentFrame.GoBack();
             return true;
         }
 
-        private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        private void Nav_SelectionChanged(
+            NavigationView sender,
+            NavigationViewSelectionChangedEventArgs args)
         {
             var tag = (args.SelectedItem as NavigationViewItem)?.Tag as string;
             Type page;
+
             switch (tag)
             {
-                case "search": page = typeof(SearchPage); break;
-                case "library": page = typeof(LibraryPage); break;
-                case "settings": page = typeof(SettingsPage); break;
-                default: page = typeof(BoardPage); break;
+                case "search":
+                    page = typeof(SearchPage);
+                    break;
+                case "library":
+                    page = typeof(LibraryPage);
+                    break;
+                case "settings":
+                    page = typeof(SettingsPage);
+                    break;
+                default:
+                    page = typeof(BoardPage);
+                    break;
             }
 
             if (ContentFrame.CurrentSourcePageType != page)
             {
                 ContentFrame.Navigate(page);
-                // Top-level tabs don't stack; back should leave detail pages only.
                 ContentFrame.BackStack.Clear();
             }
+
+            FocusContentAfterNavigation();
+        }
+
+        private async void FocusContentAfterNavigation()
+        {
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                var focusable = FindFirstFocusable(ContentFrame);
+                focusable?.Focus(FocusState.Programmatic);
+            });
+        }
+
+        private static Control FindFirstFocusable(DependencyObject root)
+        {
+            if (root == null)
+                return null;
+
+            if (root is Control control &&
+                control.IsEnabled &&
+                control.IsTabStop &&
+                control.Visibility == Visibility.Visible)
+            {
+                return control;
+            }
+
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var result = FindFirstFocusable(VisualTreeHelper.GetChild(root, i));
+                if (result != null)
+                    return result;
+            }
+
+            return null;
         }
 
         public static void ShowPlayer(PlayerArgs args)

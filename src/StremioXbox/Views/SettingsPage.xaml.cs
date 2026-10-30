@@ -6,8 +6,8 @@ using Stremio.Core.Api;
 using StremioXbox.Services;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Navigation;
 using Windows.UI.Xaml.Media.Imaging;
+using Windows.UI.Xaml.Navigation;
 
 namespace StremioXbox.Views
 {
@@ -15,9 +15,21 @@ namespace StremioXbox.Views
     {
         private static readonly string[] Languages =
         {
-            "eng", "spa", "por", "fre", "ger", "ita",
-            "dut", "pol", "rus", "tur", "ara", "hin",
-            "jpn", "kor", "chi",
+            "eng",
+            "spa",
+            "por",
+            "fre",
+            "ger",
+            "ita",
+            "dut",
+            "pol",
+            "rus",
+            "tur",
+            "ara",
+            "hin",
+            "jpn",
+            "kor",
+            "chi"
         };
 
         private bool _initializing;
@@ -61,16 +73,16 @@ namespace StremioXbox.Views
 
             UpdateAccount();
 
-            try
-            {
-                await AppServices.EnsureAddonsLoadedAsync();
-                RefreshAddons();
-            }
-            catch (Exception ex)
-            {
-                AddonStatus.Text =
-                    "Couldn't load addons: " + ex.Message;
-            }
+            await AppServices.EnsureAddonsLoadedAsync();
+
+            RefreshAddons();
+        }
+
+        protected override void OnNavigatedFrom(
+            NavigationEventArgs e)
+        {
+            _qrLoginCts?.Cancel();
+            base.OnNavigatedFrom(e);
         }
 
         private void UpdateAccount()
@@ -79,6 +91,11 @@ namespace StremioXbox.Views
                 AppServices.Settings.IsLoggedIn;
 
             LoginPanel.Visibility =
+                loggedIn
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+
+            QrLoginButton.Visibility =
                 loggedIn
                     ? Visibility.Collapsed
                     : Visibility.Visible;
@@ -103,7 +120,7 @@ namespace StremioXbox.Views
         {
             AddonList.ItemsSource =
                 AppServices.Addons.Addons
-                    .Select(a => a.Manifest)
+                    .Select(addon => addon.Manifest)
                     .ToList();
         }
 
@@ -112,7 +129,7 @@ namespace StremioXbox.Views
             RoutedEventArgs e)
         {
             LoginButton.IsEnabled = false;
-            AccountStatus.Text = "Logging in…";
+            AccountStatus.Text = "Logging in...";
 
             try
             {
@@ -131,13 +148,13 @@ namespace StremioXbox.Views
                 Password.Password = "";
 
                 AccountStatus.Text =
-                    "Loading your addons…";
+                    "Loading your addons...";
 
                 await AppServices.ReloadAddonsAsync();
 
                 AccountStatus.Text =
                     AppServices.Addons.Addons.Count +
-                    " addons loaded from your account.";
+                    " addon(s) loaded from your account.";
 
                 RefreshAddons();
             }
@@ -149,7 +166,8 @@ namespace StremioXbox.Views
             catch (Exception ex)
             {
                 AccountStatus.Text =
-                    "Couldn't reach Stremio: " + ex.Message;
+                    "Couldn't reach Stremio: " +
+                    ex.Message;
             }
             finally
             {
@@ -162,24 +180,27 @@ namespace StremioXbox.Views
             object sender,
             RoutedEventArgs e)
         {
-            var key = AppServices.Settings.AuthKey;
+            var key =
+                AppServices.Settings.AuthKey;
 
             AppServices.Settings.AuthKey = null;
             AppServices.Settings.Email = null;
 
             UpdateAccount();
+
             AccountStatus.Text = "";
 
             try
             {
-                if (!string.IsNullOrWhiteSpace(key))
-                    await AppServices.Api.LogoutAsync(key);
+                await AppServices.Api.LogoutAsync(key);
             }
-            catch (Exception)
+            catch
             {
+                // Continue logging out locally.
             }
 
             await AppServices.ReloadAddonsAsync();
+
             RefreshAddons();
         }
 
@@ -188,7 +209,7 @@ namespace StremioXbox.Views
             RoutedEventArgs e)
         {
             AppServices.Settings.StreamingServerUrl =
-                ServerUrl.Text;
+                ServerUrl.Text.Trim();
         }
 
         private void SubtitleLang_SelectionChanged(
@@ -196,10 +217,10 @@ namespace StremioXbox.Views
             SelectionChangedEventArgs e)
         {
             if (!_initializing &&
-                SubtitleLang.SelectedItem is string lang)
+                SubtitleLang.SelectedItem is string language)
             {
-                AppServices.Settings.PreferredSubtitleLanguage =
-                    lang;
+                AppServices.Settings
+                    .PreferredSubtitleLanguage = language;
             }
         }
 
@@ -225,16 +246,34 @@ namespace StremioXbox.Views
             }
         }
 
+        private void TvSafeMarginsToggle_Toggled(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_initializing)
+                return;
+
+            AppServices.Settings.UseTvSafeMargin =
+                TvSafeMarginsToggle.IsOn;
+
+            var shell =
+                App.RootFrame?.Content as ShellPage;
+
+            shell?.ApplyDisplayMargins();
+        }
+
         private async void AddAddon_Click(
             object sender,
             RoutedEventArgs e)
         {
-            var url = AddonUrl.Text.Trim();
+            var url =
+                AddonUrl.Text.Trim();
 
             if (url.Length == 0)
                 return;
 
-            AddonStatus.Text = "Checking addon…";
+            AddonStatus.Text =
+                "Checking addon...";
 
             try
             {
@@ -246,6 +285,7 @@ namespace StremioXbox.Views
                 {
                     AddonStatus.Text =
                         "That URL didn't return an addon manifest.";
+
                     return;
                 }
 
@@ -269,24 +309,9 @@ namespace StremioXbox.Views
             catch (Exception ex)
             {
                 AddonStatus.Text =
-                    "Couldn't add addon: " + ex.Message;
+                    "Couldn't add addon: " +
+                    ex.Message;
             }
-        }
-
-        private void TvSafeMarginsToggle_Toggled(
-            object sender,
-            RoutedEventArgs e)
-        {
-            if (_initializing)
-                return;
-
-            AppServices.Settings.UseTvSafeMargin =
-                TvSafeMarginsToggle.IsOn;
-
-            var shell =
-                App.RootFrame?.Content as ShellPage;
-
-            shell?.ApplyDisplayMargins();
         }
 
         private async void QrLogin_Click(
@@ -312,16 +337,17 @@ namespace StremioXbox.Views
 
             try
             {
-                // Step 1: create the code.
                 var result =
                     await AppServices.Api
                         .CreateLinkCodeAsync(token);
 
                 if (result == null ||
-                    string.IsNullOrWhiteSpace(result.Code))
+                    string.IsNullOrWhiteSpace(
+                        result.Code))
                 {
                     QrLoginStatus.Text =
                         "Stremio did not return a login code.";
+
                     return;
                 }
 
@@ -329,23 +355,10 @@ namespace StremioXbox.Views
 
                 if (string.IsNullOrWhiteSpace(qrUrl))
                 {
-                    var loginLink =
-                        result.Link;
-
-                    if (string.IsNullOrWhiteSpace(loginLink))
-                    {
-                        loginLink =
-                            "https://link.stremio.com/" +
-                            Uri.EscapeDataString(result.Code);
-                    }
-
                     qrUrl =
                         "https://link.stremio.com/qr?data=" +
-                        Uri.EscapeDataString(loginLink);
+                        Uri.EscapeDataString(result.Code);
                 }
-
-                System.Diagnostics.Debug.WriteLine(
-                    "Final QR URL: " + qrUrl);
 
                 QrCodeImage.Source =
                     new BitmapImage(
@@ -357,60 +370,58 @@ namespace StremioXbox.Views
                     "Code: " + result.Code;
 
                 QrLoginStatus.Text =
-                    "Scan the QR code or open " +
-                    (result.Link ??
-                     "https://link.stremio.com/" +
-                     result.Code);
+                    "Scan the QR code or open the link on another device.";
 
-                // Step 2 happens here:
-                // the user scans the QR code or opens the link.
-
-                // Step 3: wait and poll until login completes.
-                var authResult =
-                    await AppServices.Api
-                        .WaitForLinkAuthKeyAsync(
-                            result.Code,
-                            token);
-
-                if (authResult == null ||
-                    string.IsNullOrWhiteSpace(
-                        authResult.AuthKey))
+                while (!token.IsCancellationRequested)
                 {
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(5),
+                        token);
+
+                    var authResult =
+                        await AppServices.Api
+                            .ReadLinkCodeAsync(
+                                result.Code,
+                                token);
+
+                    if (authResult == null ||
+                        string.IsNullOrWhiteSpace(
+                            authResult.AuthKey))
+                    {
+                        continue;
+                    }
+
+                    AppServices.Settings.AuthKey =
+                        authResult.AuthKey;
+
+                    await AppServices.ReloadAddonsAsync();
+
                     QrLoginStatus.Text =
-                        "The login code expired.";
-                    return;
+                        "Login successful.";
+
+                    QrLoginPanel.Visibility =
+                        Visibility.Collapsed;
+
+                    UpdateAccount();
+                    RefreshAddons();
+
+                    break;
                 }
-
-                AppServices.Settings.AuthKey =
-                    authResult.AuthKey;
-
-                await AppServices.ReloadAddonsAsync();
-
-                RefreshAddons();
-                UpdateAccount();
-
-                QrLoginStatus.Text =
-                    "Login successful.";
             }
             catch (OperationCanceledException)
             {
                 QrLoginStatus.Text =
-                    "QR login cancelled.";
+                    "QR login canceled.";
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    "QR login exception: " + ex);
-
                 QrLoginStatus.Text =
-                    "QR login failed: " + ex.Message;
+                    "QR login failed: " +
+                    ex.Message;
             }
             finally
             {
                 QrLoginButton.IsEnabled = true;
-
-                _qrLoginCts?.Dispose();
-                _qrLoginCts = null;
             }
         }
 
@@ -422,13 +433,8 @@ namespace StremioXbox.Views
 
             QrLoginPanel.Visibility =
                 Visibility.Collapsed;
-        }
 
-        protected override void OnNavigatedFrom(
-            NavigationEventArgs e)
-        {
-            _qrLoginCts?.Cancel();
-            base.OnNavigatedFrom(e);
+            QrLoginStatus.Text = "";
         }
     }
 }

@@ -15,6 +15,7 @@ namespace StremioXbox
         public App()
         {
             InitializeComponent();
+            ApplicationViewScaling.TrySetDisableLayoutScaling(true);
             Suspending += OnSuspending;
         }
 
