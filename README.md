@@ -14,9 +14,40 @@ You don't need a PC. GitHub Actions builds the app, and you install it from your
 
 ---
 
+## Project status
+
+### Working
+
+- QR-code account sign-in.
+- Automatic auth-key polling after the QR code is scanned.
+- Automatic addon refresh after login.
+- Xbox build and GitHub Actions sideload-package publishing.
+- TV-safe margin setting.
+- Basic video playback with controller playback controls.
+- Stream sorting by addon source and quality.
+- Addon source filtering.
+- Informational stream entries and external-link handling.
+
+### Open issues and roadmap
+
+- Verify and complete incremental stream loading, so results appear as each addon responds rather than only after all addons finish.
+- Improve controller navigation and focus highlighting throughout the player and settings screens.
+- Improve audio-track and subtitle-track navigation.
+- Automatically play the next episode.
+- Sort and organize Library results more consistently.
+- Separate Search results into movies and series.
+- Improve stream-list scrolling, width, background, and layout behavior.
+- Verify full-screen and cropped-display behavior across Xbox televisions.
+- Investigate multiplayer/watch-party support.
+- Evaluate additional native player options, including MPV.
+- Evaluate torrent playback without a debrid service, subject to Xbox and Microsoft platform requirements.
+
+---
+
 ## Install on Xbox (phone + console only)
 
 ### 1. Turn on Dev Mode (one time)
+
 1. On your phone, sign up for a **Microsoft Partner Center** developer account (individual) at
    <https://partner.microsoft.com/dashboard/registration>.
 2. On the Xbox, open the Microsoft Store and install **Xbox Dev Mode** (the "Dev Mode Activation" app).
@@ -27,6 +58,7 @@ You don't need a PC. GitHub Actions builds the app, and you install it from your
    Switching back to Dev Mode later is quick.
 
 ### 2. Download the app on your phone
+
 Open **Releases → latest** in this repo: <https://github.com/rsharma929/stremio-xbox/releases/tag/latest>.
 Download every file listed there:
 
@@ -34,6 +66,7 @@ Download every file listed there:
 - `Microsoft.VCLibs.x64.*.appx`, `Microsoft.NET.Native.Framework.*.appx` and `Microsoft.NET.Native.Runtime.*.appx` are dependencies.
 
 ### 3. Install through Device Portal
+
 1. In your phone's browser, open the Device Portal address from step 1. Your browser will warn about the
    certificate; accept it. Then sign in.
 2. Go to **Home → My games & apps → Add**.
@@ -63,6 +96,7 @@ To update, install the newer release the same way. Every build has a higher vers
 - **Settings** covers your account, the streaming server, subtitle language, passthrough, display matching, and adding addons by URL.
 
 ### Where streams come from
+
 The app ships only with **Cinemeta** (catalogs) and **OpenSubtitles**. Stream sources are the addons
 installed in **your Stremio account**: log in under Settings and they load automatically. You can also
 paste an addon's `manifest.json` URL under Settings → Addons.
@@ -91,7 +125,14 @@ workload): open `StremioXbox.sln`, pick **Release | x64**, and deploy to your co
 **Remote Machine** target.
 
 ## Limitations
+
 - Stremio's streaming server (torrents) runs on another device, not on the console.
 - libVLC 3 doesn't report a video's HDR metadata. The app switches to HDR when the stream's name says
   HDR, DV or Dolby Vision. Dolby Vision plays as HDR10 or SDR, depending on the file.
 - Dev Mode apps are for personal use. They aren't in the Microsoft Store.
+- Multiplayer/watch-party functionality is not currently implemented.
+- MPV support is not currently implemented.
+
+## Development notes
+
+This project is community-developed and is not affiliated with Stremio or Microsoft.
