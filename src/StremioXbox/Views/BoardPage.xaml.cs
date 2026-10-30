@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Stremio.Core.Addons;
 using StremioXbox.Services;
 using Windows.Gaming.Input;
+using Windows.Storage;
 using Windows.System;
 using Windows.UI;
 using Windows.UI.Core;
@@ -17,17 +19,42 @@ using Windows.UI.Xaml.Navigation;
 
 namespace StremioXbox.Views
 {
-    public class CatalogRow
+    public class CatalogRow : INotifyPropertyChanged
     {
+        private bool _isEnabled = true;
+
         public int Index { get; set; }
+        public string Key { get; set; }
         public string Title { get; set; }
 
         public ObservableCollection<MetaPreview> Items { get; } =
             new ObservableCollection<MetaPreview>();
+
+
+        public bool IsEnabled
+        {
+            get => _isEnabled;
+            set
+            {
+                if (_isEnabled == value)
+                    return;
+
+                _isEnabled = value;
+
+                PropertyChanged?.Invoke(
+                    this,
+                    new PropertyChangedEventArgs(nameof(IsEnabled)));
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
     }
 
     public sealed partial class BoardPage : Page
     {
+        private const string DisabledCatalogsKey =
+            "boardDisabledCatalogs";
+
         private readonly ObservableCollection<CatalogRow> _catalogs =
             new ObservableCollection<CatalogRow>();
 
@@ -36,8 +63,17 @@ namespace StremioXbox.Views
 
         private readonly DispatcherTimer _gamepadTimer;
 
+        private MenuFlyout _categoryMenu;
+        private MenuFlyout _jumpMenu;
+
+        private HashSet<string> _disabledCatalogKeys =
+            new HashSet<string>();
+
         private bool _loaded;
         private bool _verticalInputHeld;
+        private bool _menuInputHeld;
+        private bool _backInputHeld;
+
         private int _topCatalogIndex;
         private int _activeVisibleRow;
 
@@ -47,6 +83,19 @@ namespace StremioXbox.Views
 
         private static readonly SolidColorBrush TransparentBrush =
             new SolidColorBrush(Colors.Transparent);
+
+        private bool IsMenuOpen
+        {
+            get
+            {
+                return (BoardSideMenu != null &&
+                        BoardSideMenu.IsPaneOpen) ||
+                       (_categoryMenu != null &&
+                        _categoryMenu.IsOpen) ||
+                       (_jumpMenu != null &&
+                        _jumpMenu.IsOpen);
+            }
+        }
 
         public BoardPage()
         {
@@ -66,11 +115,14 @@ namespace StremioXbox.Views
         protected override async void OnNavigatedTo(
             NavigationEventArgs e)
         {
+
             base.OnNavigatedTo(e);
 
             _verticalInputHeld = false;
-            _gamepadTimer.Start();
+            _menuInputHeld = false;
+            _backInputHeld = false;
 
+            _gamepadTimer.Start();
             if (_loaded)
             {
                 RestoreCurrentSelection();
@@ -85,7 +137,10 @@ namespace StremioXbox.Views
             NavigationEventArgs e)
         {
             _gamepadTimer.Stop();
-            _verticalInputHeld = false;
+
+            _categoryMenu?.Hide();
+            _jumpMenu?.Hide();
+            BoardSideMenu.IsPaneOpen = false;
 
             base.OnNavigatedFrom(e);
         }
@@ -98,22 +153,44 @@ namespace StremioXbox.Views
                 Gamepad.Gamepads.FirstOrDefault();
 
             if (gamepad == null)
-            {
-                _verticalInputHeld = false;
                 return;
-            }
 
             var reading =
                 gamepad.GetCurrentReading();
 
+            var menuPressed =
+                (reading.Buttons &
+                 GamepadButtons.Menu) != 0;
+
+            var backPressed =
+                (reading.Buttons &
+                 GamepadButtons.B) != 0;
+
+            if (menuPressed && !_menuInputHeld)
+            {
+                if (IsMenuOpen)
+                    CloseCategoryPopup();
+                else
+                    OpenCategoryPopup();
+            }
+
+            if (backPressed && !_backInputHeld && IsMenuOpen)
+                CloseCategoryPopup();
+
+            _menuInputHeld = menuPressed;
+            _backInputHeld = backPressed;
+
+            if (IsMenuOpen)
+                return;
+
             var upPressed =
                 (reading.Buttons &
-                    GamepadButtons.DPadUp) != 0 ||
+                 GamepadButtons.DPadUp) != 0 ||
                 reading.LeftThumbstickY > 0.65;
 
             var downPressed =
                 (reading.Buttons &
-                    GamepadButtons.DPadDown) != 0 ||
+                 GamepadButtons.DPadDown) != 0 ||
                 reading.LeftThumbstickY < -0.65;
 
             var verticalPressed =
@@ -134,6 +211,8 @@ namespace StremioXbox.Views
         {
             try
             {
+                LoadDisabledCatalogs();
+
                 await AppServices.EnsureAddonsLoadedAsync();
 
                 var sources = AppServices.Addons
@@ -143,10 +222,18 @@ namespace StremioXbox.Views
 
                 var tasks = sources.Select(async (source, index) =>
                 {
+                    var key =
+                        source.Addon + "|" +
+                        source.Catalog.Type + "|" +
+                        source.Catalog.Id;
+
                     var catalog = new CatalogRow
                     {
                         Index = index,
-                        Title = source.Title
+                        Key = key,
+                        Title = source.Title,
+                        IsEnabled =
+                            !_disabledCatalogKeys.Contains(key)
                     };
 
                     try
@@ -188,6 +275,7 @@ namespace StremioXbox.Views
                 }
                 else
                 {
+                    RebuildMenus();
                     ShowVisibleCatalogs();
                 }
             }
@@ -221,27 +309,184 @@ namespace StremioXbox.Views
             _catalogs.Insert(
                 insertIndex,
                 catalog);
+        }
 
-            if (_catalogs.Count == 1)
+        private void RebuildMenus()
+        {
+            _categoryMenu =
+                new MenuFlyout();
+
+            _jumpMenu =
+                new MenuFlyout();
+
+            foreach (var catalog in _catalogs)
             {
-                _topCatalogIndex = 0;
-                _activeVisibleRow = 0;
-                ShowVisibleCatalogs();
+                var toggle =
+                    new ToggleMenuFlyoutItem
+                    {
+                        Text = catalog.Title,
+                        IsChecked = catalog.IsEnabled,
+                        Tag = catalog
+                    };
+
+                toggle.Click +=
+                    CategoryToggle_Click;
+
+                _categoryMenu.Items.Add(toggle);
+
+                var jump =
+                    new MenuFlyoutItem
+                    {
+                        Text = catalog.Title,
+                        Tag = catalog
+                    };
+
+                jump.Click +=
+                    JumpCategory_Click;
+
+                _jumpMenu.Items.Add(jump);
             }
         }
 
-        private void ShowVisibleCatalogs()
+        private void OpenCategoryPopup()
         {
-            if (_catalogs.Count == 0)
+            if (_categoryMenu == null ||
+                _categoryMenu.Items.Count == 0)
+            {
+                RebuildMenus();
+            }
+
+            BoardSideMenu.IsPaneOpen = true;
+
+            CategoryButton.Focus(
+                FocusState.Programmatic);
+        }
+
+        private void CloseCategoryPopup()
+        {
+            _categoryMenu?.Hide();
+            _jumpMenu?.Hide();
+            BoardSideMenu.IsPaneOpen = false;
+
+            Dispatcher.RunAsync(
+                CoreDispatcherPriority.Low,
+                RestoreCurrentSelection);
+        }
+
+        private void CategoryButton_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_categoryMenu == null)
+                RebuildMenus();
+
+            _categoryMenu.ShowAt(
+                CategoryButton);
+        }
+
+        private void JumpButton_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_jumpMenu == null)
+                RebuildMenus();
+
+            _jumpMenu.ShowAt(
+                JumpButton);
+        }
+
+        private void CategoryToggle_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            var item =
+                sender as ToggleMenuFlyoutItem;
+
+            var catalog =
+                item?.Tag as CatalogRow;
+
+            if (catalog == null)
                 return;
+
+            catalog.IsEnabled =
+                item.IsChecked;
+
+            SaveDisabledCatalogs();
+            ShowVisibleCatalogs(false);
+
+            Dispatcher.RunAsync(
+                CoreDispatcherPriority.Low,
+                () =>
+                {
+                    RebuildMenus();
+                    _categoryMenu.ShowAt(CategoryButton);
+                });
+        }
+
+        private void JumpCategory_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            var item =
+                sender as MenuFlyoutItem;
+
+            var catalog =
+                item?.Tag as CatalogRow;
+
+            if (catalog == null)
+                return;
+
+            var enabled =
+                EnabledCatalogs();
+
+            var index =
+                enabled.IndexOf(catalog);
+
+            if (index < 0)
+                return;
+
+            _topCatalogIndex = index;
+            _activeVisibleRow = 0;
+
+            _jumpMenu?.Hide();
+            BoardSideMenu.IsPaneOpen = false;
+            ShowVisibleCatalogs();
+        }
+
+        private List<CatalogRow> EnabledCatalogs()
+        {
+            return _catalogs
+                .Where(c => c.IsEnabled)
+                .ToList();
+        }
+
+        private void ShowVisibleCatalogs(
+            bool restoreFocus = true)
+        {
+            var enabled =
+                EnabledCatalogs();
 
             ClearAllPosterHighlights();
 
-            if (_topCatalogIndex >= _catalogs.Count)
+            if (enabled.Count == 0)
+            {
+                TopCatalogTitle.Text =
+                    "No categories enabled";
+
+                BottomCatalogTitle.Text =
+                    "Use Categories to enable one";
+
+                TopCatalogList.ItemsSource = null;
+                BottomCatalogList.ItemsSource = null;
+                CatalogPosition.Text = "0 / 0";
+                return;
+            }
+
+            if (_topCatalogIndex >= enabled.Count)
                 _topCatalogIndex = 0;
 
             var topCatalog =
-                _catalogs[_topCatalogIndex];
+                enabled[_topCatalogIndex];
 
             TopCatalogTitle.Text =
                 topCatalog.Title ?? "Catalog";
@@ -252,10 +497,10 @@ namespace StremioXbox.Views
             var bottomIndex =
                 _topCatalogIndex + 1;
 
-            if (bottomIndex < _catalogs.Count)
+            if (bottomIndex < enabled.Count)
             {
                 var bottomCatalog =
-                    _catalogs[bottomIndex];
+                    enabled[bottomIndex];
 
                 BottomCatalogTitle.Text =
                     bottomCatalog.Title ?? "Catalog";
@@ -281,85 +526,75 @@ namespace StremioXbox.Views
             CatalogPosition.Text =
                 (_topCatalogIndex + 1) +
                 " / " +
-                _catalogs.Count;
+                enabled.Count;
 
-            Dispatcher.RunAsync(
-                CoreDispatcherPriority.Low,
-                RestoreCurrentSelection);
+            if (restoreFocus)
+            {
+                Dispatcher.RunAsync(
+                    CoreDispatcherPriority.Low,
+                    RestoreCurrentSelection);
+            }
         }
 
         private void MoveCatalog(
             int amount)
         {
-            if (_catalogs.Count == 0)
+            var enabled =
+                EnabledCatalogs();
+
+            if (enabled.Count == 0)
                 return;
 
             UpdateFocusedTitleIndex();
 
-            var currentIndex =
+            var current =
                 _topCatalogIndex +
                 _activeVisibleRow;
 
-            if (currentIndex >= _catalogs.Count)
-                currentIndex =
-                    _catalogs.Count - 1;
+            if (current >= enabled.Count)
+                current =
+                    enabled.Count - 1;
 
-            var targetIndex =
-                currentIndex + amount;
+            var target =
+                current + amount;
 
-            if (targetIndex < 0)
-                targetIndex =
-                    _catalogs.Count - 1;
+            if (target < 0)
+                target =
+                    enabled.Count - 1;
 
-            if (targetIndex >= _catalogs.Count)
-                targetIndex = 0;
+            if (target >= enabled.Count)
+                target = 0;
 
             if (amount > 0)
             {
                 if (_activeVisibleRow == 0 &&
-                    targetIndex ==
-                    _topCatalogIndex + 1 &&
-                    targetIndex < _catalogs.Count)
+                    target == _topCatalogIndex + 1 &&
+                    target < enabled.Count)
                 {
                     _activeVisibleRow = 1;
                 }
-                else if (targetIndex == 0)
+                else if (target == 0)
                 {
                     _topCatalogIndex = 0;
                     _activeVisibleRow = 0;
                 }
                 else
                 {
-                    _topCatalogIndex =
-                        targetIndex - 1;
-
+                    _topCatalogIndex = target - 1;
                     _activeVisibleRow = 1;
                 }
             }
             else
             {
                 if (_activeVisibleRow == 1 &&
-                    targetIndex == _topCatalogIndex)
+                    target == _topCatalogIndex)
                 {
                     _activeVisibleRow = 0;
-                }
-                else if (targetIndex ==
-                         _catalogs.Count - 1)
-                {
-                    _topCatalogIndex =
-                        Math.Max(
-                            0,
-                            _catalogs.Count - 2);
-
-                    _activeVisibleRow =
-                        _catalogs.Count > 1
-                            ? 1
-                            : 0;
                 }
                 else
                 {
                     _topCatalogIndex =
-                        targetIndex;
+                        Math.Max(0, target);
 
                     _activeVisibleRow = 0;
                 }
@@ -370,33 +605,40 @@ namespace StremioXbox.Views
 
         private void RestoreCurrentSelection()
         {
-            if (_catalogs.Count == 0)
+            if (IsMenuOpen)
                 return;
 
-            var catalogIndex =
+            var enabled =
+                EnabledCatalogs();
+
+            if (enabled.Count == 0)
+                return;
+
+            var index =
                 _topCatalogIndex +
                 _activeVisibleRow;
 
-            if (catalogIndex >= _catalogs.Count)
-                catalogIndex =
-                    _catalogs.Count - 1;
+            if (index >= enabled.Count)
+                index =
+                    enabled.Count - 1;
 
             var catalog =
-                _catalogs[catalogIndex];
+                enabled[index];
 
             var list =
                 _activeVisibleRow == 0
                     ? TopCatalogList
                     : BottomCatalogList;
 
-            if (list == null ||
-                catalog.Items.Count == 0)
-            {
+            if (catalog.Items.Count == 0)
                 return;
-            }
 
             var titleIndex =
-                GetTitleIndex(catalog);
+                _titleIndexes.TryGetValue(
+                    catalog.Index,
+                    out var savedIndex)
+                    ? savedIndex
+                    : 0;
 
             titleIndex = Math.Max(
                 0,
@@ -436,8 +678,6 @@ namespace StremioXbox.Views
             if (item == null)
                 return;
 
-            // Keep Up/Down from using automatic XY navigation.
-            // The Gamepad polling controls catalog changes.
             item.XYFocusUp = item;
             item.XYFocusDown = item;
 
@@ -458,38 +698,36 @@ namespace StremioXbox.Views
             var item =
                 sender as ListViewItem;
 
-            if (item == null)
-                return;
-
             var list =
                 FindParent<ListView>(item);
 
-            if (list == null)
+            if (item == null ||
+                list == null)
+            {
                 return;
+            }
 
-            var visibleRow =
-                list == TopCatalogList
-                    ? 0
-                    : 1;
+            var enabled =
+                EnabledCatalogs();
 
-            var catalogIndex =
-                _topCatalogIndex +
-                visibleRow;
+            var row =
+                list == TopCatalogList ? 0 : 1;
 
-            if (catalogIndex >= _catalogs.Count)
+            var index =
+                _topCatalogIndex + row;
+
+            if (index >= enabled.Count)
                 return;
 
             var catalog =
-                _catalogs[catalogIndex];
+                enabled[index];
 
-            var index =
+            var titleIndex =
                 list.IndexFromContainer(item);
 
-            if (index >= 0)
-            {
+            if (titleIndex >= 0)
                 _titleIndexes[catalog.Index] =
-                    index;
-            }
+                    titleIndex;
 
             ClearAllPosterHighlights();
             SetPosterHighlight(item, true);
@@ -510,20 +748,20 @@ namespace StremioXbox.Views
             ListViewItem item,
             bool selected)
         {
-            var focusRing =
+            var ring =
                 FindDescendants<Border>(item)
                     .FirstOrDefault(x =>
                         x.Name == "PosterFocusRing");
 
-            if (focusRing == null)
+            if (ring == null)
                 return;
 
-            focusRing.BorderBrush =
+            ring.BorderBrush =
                 selected
                     ? SelectedPosterBrush
                     : TransparentBrush;
 
-            focusRing.BorderThickness =
+            ring.BorderThickness =
                 selected
                     ? new Thickness(3)
                     : new Thickness(0);
@@ -532,9 +770,7 @@ namespace StremioXbox.Views
         private void ClearPosterHighlight(
             ListViewItem item)
         {
-            SetPosterHighlight(
-                item,
-                false);
+            SetPosterHighlight(item, false);
         }
 
         private void ClearAllPosterHighlights()
@@ -564,73 +800,62 @@ namespace StremioXbox.Views
                 return;
             }
 
-            var visibleRow =
-                list == TopCatalogList
-                    ? 0
-                    : 1;
+            var enabled =
+                EnabledCatalogs();
 
-            var catalogIndex =
-                _topCatalogIndex +
-                visibleRow;
+            var row =
+                list == TopCatalogList ? 0 : 1;
 
-            if (catalogIndex >= _catalogs.Count)
+            var index =
+                _topCatalogIndex + row;
+
+            if (index >= enabled.Count)
                 return;
 
             var catalog =
-                _catalogs[catalogIndex];
+                enabled[index];
 
-            var index =
+            var titleIndex =
                 list.IndexFromContainer(item);
 
-            if (index >= 0)
-            {
+            if (titleIndex >= 0)
                 _titleIndexes[catalog.Index] =
-                    index;
-            }
-        }
-
-        private int GetTitleIndex(
-            CatalogRow catalog)
-        {
-            return _titleIndexes.TryGetValue(
-                catalog.Index,
-                out var index)
-                ? index
-                : 0;
+                    titleIndex;
         }
 
         private void BoardPage_KeyDown(
             object sender,
             KeyRoutedEventArgs e)
         {
-            if (IsVerticalNavigationKey(e.Key))
+            if (IsMenuOpen)
+            {
                 e.Handled = true;
+                return;
+            }
+
+            if (e.Key == VirtualKey.Up ||
+                e.Key == VirtualKey.Down ||
+                e.Key == VirtualKey.GamepadDPadUp ||
+                e.Key == VirtualKey.GamepadDPadDown)
+            {
+                e.Handled = true;
+            }
         }
 
         private void CatalogList_KeyDown(
             object sender,
             KeyRoutedEventArgs e)
         {
-            BoardPage_KeyDown(
-                sender,
-                e);
-        }
-
-        private static bool IsVerticalNavigationKey(
-            VirtualKey key)
-        {
-            return key == VirtualKey.Up ||
-                   key == VirtualKey.Down ||
-                   key == VirtualKey.GamepadDPadUp ||
-                   key == VirtualKey.GamepadDPadDown ||
-                   key == VirtualKey.GamepadLeftThumbstickUp ||
-                   key == VirtualKey.GamepadLeftThumbstickDown;
+            BoardPage_KeyDown(sender, e);
         }
 
         private void Poster_ItemClick(
             object sender,
             ItemClickEventArgs e)
         {
+            if (IsMenuOpen)
+                return;
+
             var meta =
                 e.ClickedItem as MetaPreview;
 
@@ -646,6 +871,33 @@ namespace StremioXbox.Views
                     Type = meta.Type,
                     Id = meta.Id
                 });
+        }
+
+        private void LoadDisabledCatalogs()
+        {
+            var value =
+                ApplicationData.Current.LocalSettings.Values[
+                    DisabledCatalogsKey] as string;
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                _disabledCatalogKeys =
+                    new HashSet<string>(
+                        value.Split(
+                            new[] { '\n' },
+                            StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+
+        private void SaveDisabledCatalogs()
+        {
+            ApplicationData.Current.LocalSettings.Values[
+                DisabledCatalogsKey] =
+                string.Join(
+                    "\n",
+                    _catalogs
+                        .Where(c => !c.IsEnabled)
+                        .Select(c => c.Key));
         }
 
         private void ShowMessage(
@@ -702,3 +954,4 @@ namespace StremioXbox.Views
         }
     }
 }
+
